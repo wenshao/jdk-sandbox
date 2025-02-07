@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, Alibaba Group Holding Limited. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,43 +26,258 @@
 
 package java.util.json;
 
-import jdk.internal.javac.PreviewFeature;
-
+import java.io.Serial;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
- * The interface that represents JSON object.
- * <p>
- * A {@code JsonObject} can be produced by a {@link Json#parse(String)}.
- * <p> Alternatively, {@link #of(Map)} can be used to obtain a {@code JsonObject}.
- * Since {@code JsonObject} is backed by {@link Map}, duplicate keys
- * may not be allowed. If duplicate keys appear during a {@link Json#parse(String)},
- * a {@code JsonParseException} is thrown.
- *
- * @since 25
+ * A JSON object.
  */
-@PreviewFeature(feature = PreviewFeature.Feature.JSON)
-public sealed interface JsonObject extends JsonValue permits JsonObjectImpl {
+public interface JsonObject
+        extends Map<String, Object> {
+    /**
+     * converter
+     * @return type converter
+     */
+    default JsonTypeConverter converter() {
+        return JsonTypeConverter.DEFAULT;
+    }
 
     /**
-     * {@return the map of {@code String} to {@code JsonValue} members in this
-     * {@code JsonObject}}
+     * getJsonArray
+     * @param key the key whose associated value is to be returned
+     * @return the JsonArray to which the specified key is mapped,
      */
-    Map<String, JsonValue> keys();
+    default JsonArray getJsonArray(String key) {
+        return (JsonArray) this.get(key);
+    }
 
     /**
-     * {@return the {@code JsonObject} created from the given
-     * map of {@code String} to {@code JsonValue}s}
-     *
-     * @param map the map of {@code JsonValue}s. Non-null.
-     * @throws IllegalArgumentException if the conversion of {@code map} to a
-     * {@code JsonObject} exceeds a nest limit.
-     * @throws NullPointerException if {@code map} is {@code null}
+     * getJsonObject
+     * @param key the key whose associated value is to be returned
+     * @return the JsonObject to which the specified key is mapped,
      */
-    static JsonObject of(Map<String, ? extends JsonValue> map) {
-        var jo = new JsonObjectImpl(Objects.requireNonNull(map));
-        JsonGenerator.checkDepth(jo, 1);
-        return jo;
+    default JsonObject getJsonObject(String key) {
+        return (JsonObject) this.get(key);
+    }
+
+    /**
+     * getBigDecimal
+     * @param key the key whose associated value is to be returned
+     * @return the BigDecimal value to which the specified key is mapped,
+     */
+    default BigDecimal getBigDecimal(String key) {
+        return converter()
+                .toBigDecimal(
+                        get(key));
+    }
+
+    /**
+     * getBigInteger
+     * @param key the key whose associated value is to be returned
+     * @return the BigInteger to which the specified key is mapped,
+     */
+    default BigInteger getBigInteger(String key) {
+        return converter()
+                .toBigInteger(
+                        get(key));
+    }
+
+    /**
+     * getFloat
+     * @param key the key whose associated value is to be returned
+     * @return the Float value to which the specified key is mapped,
+     */
+    default Float getFloat(String key) {
+        return converter().toFloat(
+                get(key)
+        );
+    }
+
+    /**
+     * getFloatValue
+     * @param key the key whose associated value is to be returned
+     * @return the float value to which the specified key is mapped,
+     */
+    default float getFloatValue(String key) {
+        return converter()
+                .toFloatValue(
+                        get(key), 0f);
+    }
+
+    /**
+     * getDouble
+     * @param key the key whose associated value is to be returned
+     * @return the Double to which the specified key is mapped,
+     */
+    default Double getDouble(String key) {
+        return converter()
+                .toDouble(
+                        get(key));
+    }
+
+    /**
+     * getDoubleValue
+     * @param key the key whose associated value is to be returned
+     * @return the double value to which the specified key is mapped,
+     */
+    default double getDoubleValue(String key) {
+        return converter()
+                .toDoubleValue(
+                        get(key),
+                        0d);
+    }
+
+    /**
+     * getString
+     * @param key the key whose associated value is to be returned
+     * @return the String to which the specified key is mapped,
+     */
+    default String getString(String key) {
+        return converter()
+                .toString(
+                        get(key));
+    }
+
+    /**
+     * getInteger
+     * @param key the key whose associated value is to be returned
+     * @return the Integer to which the specified key is mapped,
+     */
+    default Integer getInteger(String key) {
+        return converter()
+                .toInteger(
+                        get(key));
+    }
+
+    /**
+     * getIntValue
+     * @param key the key whose associated value is to be returned
+     * @return the int value to which the specified key is mapped,
+     */
+    default int getIntValue(String key) {
+        return getIntValueOrDefault(key, 0);
+    }
+
+    /**
+     * getIntValueOrDefault
+     * @param key the key whose associated value is to be returned
+     * @param defaultValue if the element of List is null
+     * @return the int value to which the specified key is mapped,
+     */
+    default int getIntValueOrDefault(String key, int defaultValue) {
+        return converter()
+                .toIntValue(
+                        get(key), defaultValue);
+    }
+
+    /**
+     * getLong
+     * @param key the key whose associated value is to be returned
+     * @return the Long to which the specified key is mapped,
+     */
+    default Long getLong(String key) {
+        return converter()
+                .toLong(
+                        get(key));
+    }
+
+    /**
+     * getLongValue
+     * @param key the key whose associated value is to be returned
+     * @return the Long to which the specified key is mapped,
+     */
+    default long getLongValue(String key) {
+        return getLongValueOrDefault(key, 0L);
+    }
+
+    /**
+     * getLongValueOrDefault
+     * @param key the key whose associated value is to be returned
+     * @param defaultValue if the element of List is null
+     * @return the Long to which the specified key is mapped,
+     */
+    default long getLongValueOrDefault(String key, long defaultValue) {
+        return converter()
+                .toLongValue(
+                        get(key), defaultValue);
+    }
+
+    /**
+     * getBoolean
+     * @param key the key whose associated value is to be returned
+     * @return the Boolean to which the specified key is mapped,
+     */
+    default Boolean getBoolean(String key) {
+        return converter()
+                .toBoolean(
+                        get(key));
+    }
+
+    /**
+     * getBooleanValue
+     * @param key the key whose associated value is to be returned
+     * @return the Boolean to which the specified key is mapped,
+     */
+    default boolean getBooleanValue(String key) {
+        return getBooleanValueOrDefault(key, false);
+    }
+
+    /**
+     * getBooleanValueOrDefault
+     * @param key the key whose associated value is to be returned
+     * @param defaultValue if the element of List is null
+     * @return the Boolean to which the specified key is mapped,
+     */
+    default boolean getBooleanValueOrDefault(String key, boolean defaultValue) {
+        return converter()
+                .toBooleanValue(
+                        get(key));
+    }
+
+    /**
+     * Returns an JsonObject containing zero mappings.
+     * @param ordered The flag that the elements of JsonObject are stored in order
+     * @return an JsonObject containing zero mappings.
+     */
+    static JsonObject create(boolean ordered) {
+        class JsonObject0 extends LinkedHashMap<String, Object> implements JsonObject {
+            @Serial
+            private static final long serialVersionUID = 1L;
+            public String toString() {
+                return Json.toJsonString(this);
+            }
+        }
+        class JsonObject1 extends HashMap<String, Object> implements JsonObject {
+            @Serial
+            private static final long serialVersionUID = 1L;
+            public String toString() {
+                return Json.toJsonString(this);
+            }
+        }
+        return ordered ?  new JsonObject0() : new JsonObject1();
+    }
+
+    /**
+     * Returns an JsonObject containing zero mappings.
+     * @return an JsonObject containing zero mappings.
+     */
+    static JsonObject of() {
+        return create(true);
+    }
+
+    /**
+     *  Returns an JsonObject containing a single mapping.
+     * @param key the mapping's key
+     * @param value the mapping's value
+     * @return an JsonObject containing a single mapping.
+     */
+    static JsonObject of(String key, Object value) {
+        JsonObject object = create(true);
+        object.put(key, value);
+        return object;
     }
 }

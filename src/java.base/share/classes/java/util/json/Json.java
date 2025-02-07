@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, Alibaba Group Holding Limited. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,175 +23,175 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
 package java.util.json;
 
-import jdk.internal.javac.PreviewFeature;
-
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.IdentityHashMap;
-import java.util.Objects;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 /**
- * This class provides static methods for producing and manipulating a {@link JsonValue}.
- * <p>
- * {@link #parse(String)} and {@link #parse(char[])} produce a {@code JsonValue}
- * by parsing data adhering to the JSON syntax defined in RFC 8259.
- * <p>
- * {@link #toDisplayString(JsonValue)} is a formatter that produces a
- * representation of the JSON value suitable for display.
- * <p>
- * {@link #fromUntyped(Object)} and {@link #toUntyped(JsonValue)} provide a conversion
- * between {@code JsonValue} and an untyped object.
- *
- * <table id="mapping-table" class="striped">
- * <caption>Mapping Table</caption>
- * <thead>
- *    <tr>
- *       <th scope="col" class="TableHeadingColor">Untyped Object</th>
- *       <th scope="col" class="TableHeadingColor">JsonValue</th>
- *    </tr>
- * </thead>
- * <tbody>
-     * <tr>
-     *     <th>{@code List<Object>}</th>
-     *     <th> {@code JsonArray}</th>
-     * </tr>
-     * <tr>
-     *     <th>{@code Boolean}</th>
-     *     <th>{@code JsonBoolean}</th>
-     * </tr>
-     * <tr>
-     *     <th>{@code `null`}</th>
-     *     <th> {@code JsonNull}</th>
-     * </tr>
-     * <tr>
-     *     <th>{@code Number}</th>
-     *     <th>{@code JsonNumber}</th>
-     * </tr>
-     * <tr>
-     *     <th>{@code Map<String, Object>}</th>
-     *     <th> {@code JsonObject}</th>
-     * </tr>
-     * <tr>
-     *     <th>{@code String}</th>
-     *     <th>{@code JsonString}</th>
-     * </tr>
- * </tbody>
- * </table>
- *
- * @implSpec The reference implementation defines a {@code JsonValue} nesting
- * depth limit of 32. Attempting to construct a {@code JsonValue} that exceeds this limit
- * will throw an {@code IllegalArgumentException}.
- *
- * @spec https://datatracker.ietf.org/doc/html/rfc8259 RFC 8259: The JavaScript
- *          Object Notation (JSON) Data Interchange Format
- * @since 25
+ * Factory and utility methods for Json
  */
-@PreviewFeature(feature = PreviewFeature.Feature.JSON)
 public final class Json {
-
-    // Depth limit used by Parser and Generator
-    static final int MAX_DEPTH = 32;
-
     /**
-     * Parses and creates the top level {@code JsonValue} in this JSON
-     * document. If parsing succeeds, it guarantees that the input document
-     * conforms to the JSON syntax. However, it does not necessarily guarantee
-     * if every leaf level JSON element gets converted to a {@code JsonValue}.
-     * If the document contains any JSON Object that has duplicate keys, a
-     * {@code JsonParseException} is thrown.
-     *
-     * @param in the input JSON document as {@code String}. Non-null.
-     * @throws JsonParseException if the input JSON document does not conform
-     *      to the JSON document format, a JSON object containing
-     *      duplicate keys is encountered, or a nest limit is exceeded.
-     * @throws NullPointerException if {@code in} is {@code null}
-     * @return the top level {@code JsonValue}
+     * Constructor
      */
-    public static JsonValue parse(String in) {
-        Objects.requireNonNull(in);
-        return JsonGenerator.createValue(JsonParser.parseRoot(
-                new JsonDocumentInfo(in.toCharArray())), 0, 0);
+    private Json() {
+        // no instances
     }
 
     /**
-     * Parses and creates the top level {@code JsonValue} in this JSON
-     * document. If parsing succeeds, it guarantees that the input document
-     * conforms to the JSON syntax. However, it does not necessarily guarantee
-     * if every leaf level JSON element gets converted to a {@code JsonValue}.
-     * If the document contains any JSON Object that has duplicate keys, a
-     * {@code JsonParseException} is thrown.
-     *
-     * @param in the input JSON document as {@code char[]}. Non-null.
-     * @throws JsonParseException if the input JSON document does not conform
-     *      to the JSON document format, a JSON object containing
-     *      duplicate keys is encountered, or a nest limit is exceeded.
-     * @throws NullPointerException if {@code in} is {@code null}
-     * @return the top level {@code JsonValue}
+     * Parse value from a JsonParser
+     * @param parser the parser
+     * @return a value
      */
-    public static JsonValue parse(char[] in) {
-        Objects.requireNonNull(in);
-        return JsonGenerator.createValue(JsonParser.parseRoot(
-                new JsonDocumentInfo(Arrays.copyOf(in, in.length))), 0, 0);
-    }
-
-    /**
-     * {@return a {@code JsonValue} corresponding to {@code src}}
-     * See the {@link ##mapping-table Mapping Table} for conversion details.
-     *
-     * <p>If {@code src} contains a circular reference, {@code IllegalArgumentException}
-     * will be thrown. For example, the following code throws an exception,
-     * {@snippet lang=java:
-     *     var map = new HashMap<String, Object>();
-     *     map.put("foo", false);
-     *     map.put("bar", map);
-     *     Json.fromUntyped(map);
-     * }
-     *
-     * @param src the data to produce the {@code JsonValue} from. May be null.
-     * @throws IllegalArgumentException if {@code src} cannot be converted
-     *      to {@code JsonValue}, contains a circular reference, or exceeds a nesting limit.
-     * @see ##mapping-table Mapping Table
-     * @see #toUntyped(JsonValue)
-     */
-    public static JsonValue fromUntyped(Object src) {
-        if (src instanceof JsonValue jv) {
-            return jv; // If root is JV, no need to check depth
-        } else {
-            return JsonGenerator.fromUntyped(
-                    src, Collections.newSetFromMap(new IdentityHashMap<>()), 0);
+    private static Object parse(JsonParser parser) {
+        try {
+            return parser.parseAny();
+        } finally {
+            parser.close();
         }
     }
 
     /**
-     * {@return an {@code Object} corresponding to {@code src}}
-     * See the {@link ##mapping-table Mapping Table} for conversion details.
-     *
-     * @param src the {@code JsonValue} to convert to untyped. Non-null.
-     * @throws NullPointerException if {@code src} is {@code null}
-     * @see ##mapping-table Mapping Table
-     * @see #fromUntyped(Object)
+     * Parse from a String
+     * @param str json string
+     * @return a value
      */
-    public static Object toUntyped(JsonValue src) {
-        Objects.requireNonNull(src);
-        return ((JsonValueImpl)src).toUntyped();
+    public static Object parse(String str) {
+        try (JsonParser parser = JsonParser.of(str)) {
+            return parse(parser);
+        }
     }
 
     /**
-     * {@return the String representation of the given {@code JsonValue} that conforms
-     * to the JSON syntax} As opposed to the compact output returned by {@link
-     * JsonValue#toString()}, this method returns a JSON string that is better
-     * suited for display.
-     *
-     * @param value the {@code JsonValue} to create the display string from. Non-null.
-     * @throws NullPointerException if {@code value} is {@code null}
+     * Parse from a utf8 bytes
+     * @param str utf8 bytes
+     * @return a value
      */
-    public static String toDisplayString(JsonValue value) {
-        Objects.requireNonNull(value);
-        return ((JsonValueImpl)value).toDisplayString();
+    public static Object parse(byte[] str) {
+        return parse(str, 0, str.length, StandardCharsets.UTF_8);
     }
 
-    // no instantiation is allowed for this class
-    private Json() {}
+    /**
+     * Parse from a String
+     * @param bytes json string bytes
+     * @param offset the offset
+     * @param length the length
+     * @param charset the charset
+     * @return a value
+     */
+    public static Object parse(byte[] bytes, int offset, int length, Charset charset) {
+        try (JsonParser parser = JsonParser.of(bytes, offset, length, charset)) {
+            return parse(parser);
+        }
+    }
+
+    /**
+     * Parse a JsonObject from a JsonParser
+     * @param parser the parser
+     * @return a JsonObject
+     */
+    private static JsonObject parseObject(JsonParser parser) {
+        try {
+            JsonObject object = parser.createJsonObject();
+            parser.parseObject(object);
+            return object;
+        } finally {
+            parser.close();
+        }
+    }
+
+    /**
+     * Parse a JsonObject from a byte array
+     * @param json the json string utf8 bytes
+     * @return a JsonObject
+     */
+    public static JsonObject parseObject(byte[] json) {
+        return parseObject(json, 0, json.length, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Parse a JsonObject from a byte array
+     * @param json json string bytes
+     * @param off the offset
+     * @param len the length
+     * @param charset the charset
+     * @return a JsonObject
+     */
+    public static JsonObject parseObject(byte[] json, int off, int len, Charset charset) {
+        return parseObject(JsonParser.of(json, off, len, charset));
+    }
+
+    /**
+     * Parse a JsonObject from a String
+     * @param json json string
+     * @return a JsonObject
+     */
+    public static JsonObject parseObject(String json) {
+        return parseObject(JsonParser.of(json));
+    }
+
+    /**
+     * Parse a JsonArray from a String
+     * @param json json string
+     * @return a JsonArray
+     */
+    public static JsonArray parseArray(String json) {
+        try (JsonParser parser = JsonParser.of(json)) {
+            JsonArray array = JsonArray.of();
+            parser.parseArray(array);
+            return array;
+        }
+    }
+
+    /**
+     * Parse a JsonArray from a byte array
+     * @param json json string utf8 bytes
+     * @return a JsonArray
+     */
+    public static JsonArray parseArray(byte[] json) {
+        return parseArray(json, 0, json.length, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Parse a JsonArray from a byte array
+     * @param json json string bytes
+     * @param offset the offset
+     * @param length the length
+     * @param charset the charset
+     * @return a JsonArray
+     */
+    public static JsonArray parseArray(byte[] json, int offset, int length, Charset charset) {
+        try (JsonParser parser = JsonParser.of(json, offset, length, charset)) {
+            JsonArray array = JsonArray.of();
+            parser.parseArray(array);
+            return array;
+        }
+    }
+
+    /**
+     * Convert a value to json string
+     * @param value the value to convert
+     * @param features generator features
+     * @return json string
+     */
+    public static String toJsonString(Object value, JsonGenerator.Feature... features) {
+        try (JsonGenerator generator = JsonGenerator.ofUTF16(features)) {
+            generator.writeAny(value);
+            return generator.toString();
+        }
+    }
+
+    /**
+     * Convert a value to json string utf8 bytes
+     * @param value the value to convert
+     * @return json string utf8 bytes
+     */
+    public static byte[] toJsonBytes(Object value) {
+        try (JsonGenerator generator = JsonGenerator.of()) {
+            generator.writeAny(value);
+            return generator.getBytes();
+        }
+    }
 }

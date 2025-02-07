@@ -74,6 +74,14 @@ class StringCoding {
         return strlen;
     }
 
+    /**
+     * Count the number of leading positive bytes in the range.
+     */
+    public static int countPositives(String s) {
+        byte[] value = s.value();
+        return s.isLatin1() ? countPositives(value, 0, value.length) : 0;
+    }
+
     public static boolean hasNegatives(byte[] ba, int off, int len) {
         return countPositives(ba, off, len) != len;
     }

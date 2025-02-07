@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, Alibaba Group Holding Limited. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,395 +26,466 @@
 
 package java.util.json;
 
-import java.util.HashSet;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.Map;
 
-// Responsible for parsing the Json document which validates the contents
-// and builds the tokens array in JsonDocumentInfo which is used for lazy inflation
-final class JsonParser { ;
+/**
+ * JsonParser
+ */
+public abstract class JsonParser implements AutoCloseable {
+    /**
+     * EOI (End Of Input)
+     */
+    protected static final char EOI = 0x1A;
+    /**
+     * Whitespace mask
+     */
+    protected static final long SPACE
+            = (1L << ' ')
+            | (1L << '\n')
+            | (1L << '\r')
+            | (1L << '\f')
+            | (1L << '\t')
+            | (1L << '\b');
 
-    // Parse the JSON and return the built DocumentInfo w/ tokens array
-    static JsonDocumentInfo parseRoot(JsonDocumentInfo docInfo) {
-        int end = parseValue(docInfo, 0, 0);
-        if (!checkWhitespaces(docInfo, end, docInfo.getEndOffset())) {
-            throw failure(docInfo,"Unexpected character(s)", end);
-        }
-        return docInfo;
+    /**
+     * Current char
+     */
+    protected char ch;
+    /**
+     * Current offset
+     */
+    protected int offset;
+    /**
+     * Start offset
+     */
+    protected final int start;
+    /**
+     * End offset
+     */
+    protected final int end;
+    /**
+     * Current level
+     */
+    protected int level;
+    /**
+     * Max level
+     */
+    protected int maxLevel = 1024;
+    /**
+     * has comma
+     */
+    protected boolean comma;
+    /**
+     * Features
+     */
+    protected long features;
+
+    /**
+     * Constructor
+     * @param offset the offset
+     * @param end the end offset
+     */
+    protected JsonParser(int offset, int end) {
+        this.offset = offset;
+        this.start = offset;
+        this.end = end;
     }
 
-    static int parseValue(JsonDocumentInfo docInfo, int offset, int depth) {
-        offset = skipWhitespaces(docInfo, offset);
-
-        return switch (docInfo.charAt(offset)) {
-            case '{' -> parseObject(docInfo, offset, depth + 1);
-            case '[' -> parseArray(docInfo, offset, depth + 1);
-            case '"' -> parseString(docInfo, offset);
-            case 't', 'f' -> parseBoolean(docInfo, offset);
-            case 'n' -> parseNull(docInfo, offset);
-            case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-' -> parseNumber(docInfo, offset);
-            default -> throw failure(docInfo, "Unexpected character(s)", offset);
-        };
+    /**
+     * Get max level
+     * @return the max level
+     */
+    protected int getMaxLevel() {
+        return maxLevel;
     }
 
-    static int parseObject(JsonDocumentInfo docInfo, int offset, int depth) {
-        checkDepth(docInfo, offset, depth);
-        var keys = new HashSet<String>();
-        docInfo.addToken(offset);
-        // Walk past the '{'
-        offset = JsonParser.skipWhitespaces(docInfo, offset + 1);
-        // Check for empty case
-        if (docInfo.charAt(offset) == '}') {
-            docInfo.addToken(offset);
-            return ++offset;
+    /**
+     * Is whitespace
+     * @param ch the char
+     * @return true if whitespace
+     */
+    static boolean isWhitSpace(int ch) {
+        return ch <= ' ' && ((1L << ch) & SPACE) != 0;
+    }
+
+    /**
+     * Next if match
+     * @param m the match charactor
+     * @return true if match
+     */
+    protected abstract boolean nextIfMatch(char m);
+
+    /**
+     * Next Char
+     */
+    protected abstract void next();
+
+    /**
+     * Parse number
+     * @return the number value
+     */
+    protected abstract Number parseNumber();
+
+    /**
+     * Parse string
+     * @return the string
+     */
+    protected String parseString() {
+        return parseString(false);
+    }
+
+    /**
+     *  Parse field name
+     * @return the field name
+     */
+    protected String parseFieldName() {
+        return parseString(true);
+    }
+
+    /**
+     * Parse string
+     * @param isName is name
+     * @return the string
+     */
+    protected abstract String parseString(boolean isName);
+
+    /**
+     * Parse boolean
+     * @return the boolean
+     */
+    protected abstract boolean parseBoolean();
+
+    /**
+     * Parse null
+     */
+    protected abstract void parseNull();
+
+    /**
+     * Create JsonObject
+     * @return the json object
+     */
+    protected final JsonObject createJsonObject() {
+        return JsonObject.create(true);
+    }
+
+    /**
+     * Create Map
+     * @return the map
+     */
+    protected final Map<String, Object> createObject() {
+        return createJsonObject();
+    }
+
+    /**
+     * Create Collection
+     * @return the collection
+     */
+    protected final Collection<Object> createArray() {
+        return JsonArray.of();
+    }
+
+    /**
+     * Parse array
+     * @param list the list
+     */
+    public final void parseArray(Collection<Object> list) {
+        if (!nextIfMatch('[')) {
+            throw new JsonParseException("illegal input, offset " + offset + ", char " + ch, 0, 0);
         }
-        while (offset < docInfo.getEndOffset()) {
-            // Get the key
-            if (docInfo.charAt(offset) != '"') {
-                throw failure(docInfo, "Invalid key", offset);
-            }
-            // Member equality done via unescaped String
-            // see https://datatracker.ietf.org/doc/html/rfc8259#section-8.3
-            docInfo.addToken(offset++); // Move past the starting quote
-            var escape = false;
-            boolean useBldr = false;
-            var start = offset;
-            StringBuilder sb = null; // only init if we need to use for escapes
-            boolean foundClosing = false;
-            for (; offset < docInfo.getEndOffset(); offset++) {
-                var c = docInfo.charAt(offset);
-                if (escape) {
-                    var length = 0;
-                    switch (c) {
-                        // Allowed JSON escapes
-                        case '"', '\\', '/' -> {}
-                        case 'b' -> c = '\b';
-                        case 'f' -> c = '\f';
-                        case 'n' -> c = '\n';
-                        case 'r' -> c = '\r';
-                        case 't' -> c = '\t';
-                        case 'u' -> {
-                            if (offset + 4 < docInfo.getEndOffset()) {
-                                c = codeUnit(docInfo, offset + 1);
-                                length = 4;
-                            } else {
-                                throw failure(docInfo,
-                                        "Illegal Unicode escape sequence", offset);
-                            }
-                        }
-                        default -> throw failure(docInfo,
-                                "Illegal escape", offset);
-                    }
-                    if (!useBldr) {
-                        useBldr = true;
-                        sb = new StringBuilder(docInfo.substring(start, offset - 1));
-                    }
-                    offset+=length;
-                    escape = false;
-                } else if (c == '\\') {
-                    escape = true;
-                    continue;
-                } else if (c == '\"') {
-                    docInfo.addToken(offset++);
-                    foundClosing = true;
-                    break;
-                } else if (c < ' ') {
-                    throw failure(docInfo,
-                            "Unescaped control code", offset);
-                }
-                if (useBldr) {
-                    sb.append(c);
-                }
-            }
-            if (!foundClosing) {
-                throw failure(docInfo, "Closing quote missing", offset);
-            }
-            var keyStr = useBldr ? sb.toString() :
-                    docInfo.substring(start, offset - 1);
 
-            // Check for duplicates
-            if (keys.contains(keyStr)) {
-                throw failure(docInfo,
-                        "The duplicate key: '%s' was already parsed".formatted(keyStr), offset);
+        level++;
+        if (level >= getMaxLevel()) {
+            throw new JsonParseException("level too large : " + level, 0, 0);
+        }
+
+        for (; ; ) {
+            if (nextIfMatch(']')) {
+                level--;
+                break;
             }
-            keys.add(keyStr);
+            Object item = parseAny();
+            list.add(item);
+        }
 
-            // Move from key to ':'
-            offset = JsonParser.skipWhitespaces(docInfo, offset);
-            docInfo.addToken(offset);
-            if (docInfo.charAt(offset) != ':') {
-                throw failure(docInfo,
-                        "Unexpected character(s) found after key", offset);
-            }
+        nextIfMatch(',');
+    }
 
-            // Move from ':' to JsonValue
-            offset = JsonParser.skipWhitespaces(docInfo, offset + 1);
-            offset = JsonParser.parseValue(docInfo, offset, depth);
+    /**
+     * Parse object
+     * @param object the object
+     */
+    public void parseObject(Map<String, Object> object) {
+        nextIfMatch('{');
 
-            // Walk to either ',' or '}'
-            offset = JsonParser.skipWhitespaces(docInfo, offset);
-            var c = docInfo.charAt(offset);
-            if (c == '}') {
-                docInfo.addToken(offset);
-                return ++offset;
-            } else if (docInfo.charAt(offset) != ',') {
+        level++;
+        if (level >= getMaxLevel()) {
+            throw new JsonParseException("level too large : " + level, 0, 0);
+        }
+
+        for (int i = 0; ; ++i) {
+            if (ch == '}') {
+                next();
                 break;
             }
 
-            // Add the comma, and move to the next key
-            docInfo.addToken(offset);
-            offset = JsonParser.skipWhitespaces(docInfo, offset + 1);
+            String name = parseFieldName();
+            Object val;
+            val = parseAny();
+
+            Object origin = object.put(name, val);
+            if (origin != null) {
+                onDuplicate(object, name, val, origin);
+            }
         }
-        throw failure(docInfo,
-                "Unexpected character(s) found after value", offset);
+
+        if (comma = (ch == ',')) {
+            next();
+        }
+
+        level--;
     }
 
-    static int parseArray(JsonDocumentInfo docInfo, int offset, int depth) {
-        checkDepth(docInfo, offset, depth);
-        docInfo.addToken(offset);
-        // Walk past the '['
-        offset = JsonParser.skipWhitespaces(docInfo, offset + 1);
-        // Check for empty case
-        if (docInfo.charAt(offset) == ']') {
-            docInfo.addToken(offset);
-            return ++offset;
-        }
-
-        while (offset < docInfo.getEndOffset()) {
-            // Get the JsonValue
-            offset = JsonParser.parseValue(docInfo, offset, depth);
-            // Walk to either ',' or ']'
-            offset = JsonParser.skipWhitespaces(docInfo, offset);
-            var c = docInfo.charAt(offset);
-            if (c == ']') {
-                docInfo.addToken(offset);
-                return ++offset;
-            } else if (c != ',') {
+    /**
+     * Parse any
+     * @return the value
+     */
+    public Object parseAny() {
+        Object val;
+        switch (ch) {
+            case '-':
+            case '+':
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8':
+            case '9':
+                val = parseNumber();
                 break;
-            }
-
-            // Add the comma, and move to the next value
-            docInfo.addToken(offset);
-            offset = JsonParser.skipWhitespaces(docInfo, offset + 1);
-        }
-        throw failure(docInfo,
-                "Unexpected character(s) found after value", offset);
-    }
-
-    static int parseString(JsonDocumentInfo docInfo, int offset) {
-        docInfo.addToken(offset++); // Move past the starting quote
-        var escape = false;
-
-        for (; offset < docInfo.getEndOffset(); offset++) {
-            var c = docInfo.charAt(offset);
-            if (escape) {
-                switch (c) {
-                    // Allowed JSON escapes
-                    case '"', '\\', '/', 'b', 'f', 'n', 'r', 't' -> {}
-                    case 'u' -> {
-                        if (offset + 4 < docInfo.getEndOffset()) {
-                            checkEscapeSequence(docInfo, offset + 1);
-                            offset += 4;
-                        } else {
-                            throw failure(docInfo,
-                                    "Illegal Unicode escape sequence", offset);
-                        }
-                    }
-                    default -> throw failure(docInfo,
-                            "Illegal escape", offset);
-                }
-                escape = false;
-            } else if (c == '\\') {
-                escape = true;
-            } else if (c == '\"') {
-                docInfo.addToken(offset);
-                return ++offset;
-            } else if (c < ' ') {
-                throw failure(docInfo,
-                        "Unescaped control code", offset);
-            }
-        }
-        throw failure(docInfo, "Closing quote missing", offset);
-    }
-
-    // Validate unicode escape sequence
-    static void checkEscapeSequence(JsonDocumentInfo docInfo, int offset) {
-        for (int index = 0; index < 4; index++) {
-            char c = docInfo.charAt(offset + index);
-            if ((c < 'a' || c > 'f') && (c < 'A' || c > 'F') && (c < '0' || c > '9')) {
-                throw failure(docInfo, "Invalid Unicode escape", offset);
-            }
-        }
-    }
-
-    // Validate and construct corresponding value of unicode escape sequence
-    static char codeUnit(JsonDocumentInfo docInfo, int offset) {
-        char val = 0;
-        for (int index = 0; index < 4; index ++) {
-            char c = docInfo.charAt(offset + index);
-            val <<= 4;
-            val += (char) (
-                    switch (c) {
-                        case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' -> c - '0';
-                        case 'a', 'b', 'c', 'd', 'e', 'f' -> c - 'a' + 10;
-                        case 'A', 'B', 'C', 'D', 'E', 'F' -> c - 'A' + 10;
-                        default -> throw new InternalError();
-                    });
+            case '[':
+                Collection<Object> arrayValue = createArray();
+                parseArray(arrayValue);
+                val = arrayValue;
+                break;
+            case '{':
+                Map<String, Object> objectValue =createObject();
+                parseObject(objectValue);
+                val = objectValue;
+                break;
+            case '"':
+            case '\'':
+                val = parseString();
+                break;
+            case 't':
+            case 'f':
+                val = parseBoolean();
+                break;
+            case 'n':
+                parseNull();
+                val = null;
+                break;
+            default:
+                throw new JsonParseException("illegal input " + ch, 0, 0);
         }
         return val;
     }
 
-    static int parseBoolean(JsonDocumentInfo docInfo, int offset) {
-        var start = docInfo.charAt(offset);
-        if (start == 't') {
-            if (offset + 3 >= docInfo.getEndOffset() || !docInfo.substring(offset + 1, offset + 4).equals("rue")) {
-                throw failure(docInfo, "Unexpected character(s)", offset);
-            }
-            return offset + 4;
-        } else {
-            if (offset + 4 >= docInfo.getEndOffset() || !docInfo.substring(offset + 1, offset + 5).equals("alse")) {
-                throw failure(docInfo, "Unexpected character(s)", offset);
-            }
-            return offset + 5;
-        }
-    }
-
-    static int parseNull(JsonDocumentInfo docInfo, int offset) {
-        if (offset + 3 >= docInfo.getEndOffset() || !docInfo.substring(offset + 1, offset + 4).equals("ull")) {
-            throw failure(docInfo, "Unexpected character(s)", offset);
-        }
-        return offset + 4;
-    }
-
-    static int parseNumber(JsonDocumentInfo docInfo, int offset) {
-        boolean sawDecimal = false;
-        boolean sawExponent = false;
-        boolean sawZero = false;
-        boolean sawWhitespace = false;
-        boolean havePart = false;
-        boolean sawInvalid = false;
-        boolean sawSign = false;
-        var start = offset;
-        for (; offset < docInfo.getEndOffset() && !sawWhitespace && !sawInvalid; offset++) {
-            switch (docInfo.charAt(offset)) {
-                case '-' -> {
-                    if (offset != start && !sawExponent || sawSign) {
-                        throw failure(docInfo,
-                                "Invalid '-' position", offset);
-                    }
-                    sawSign = true;
-                }
-                case '+' -> {
-                    if (!sawExponent || havePart || sawSign) {
-                        throw failure(docInfo,
-                                "Invalid '+' position", offset);
-                    }
-                    sawSign = true;
-                }
-                case '0' -> {
-                    if (!havePart) {
-                        sawZero = true;
-                    }
-                    havePart = true;
-                }
-                case '1', '2', '3', '4', '5', '6', '7', '8', '9' -> {
-                    if (!sawDecimal && !sawExponent && sawZero) {
-                        throw failure(docInfo,
-                                "Invalid '0' position", offset);
-                    }
-                    havePart = true;
-                }
-                case '.' -> {
-                    if (sawDecimal) {
-                        throw failure(docInfo,
-                                "Invalid '.' position", offset);
-                    } else {
-                        if (!havePart) {
-                            throw failure(docInfo,
-                                    "Invalid '.' position", offset);
-                        }
-                        sawDecimal = true;
-                        havePart = false;
-                    }
-                }
-                case 'e', 'E' -> {
-                    if (sawExponent) {
-                        throw failure(docInfo,
-                                "Invalid '[e|E]' position", offset);
-                    } else {
-                        if (!havePart) {
-                            throw failure(docInfo,
-                                    "Invalid '[e|E]' position", offset);
-                        }
-                        sawExponent = true;
-                        havePart = false;
-                        sawSign = false;
-                    }
-                }
-                case ' ', '\t', '\r', '\n' -> {
-                    sawWhitespace = true;
-                    offset --;
-                }
-                default -> {
-                    offset--;
-                    sawInvalid = true;
-                }
+    /**
+     * On duplicate
+     * @param object the object
+     * @param name the name
+     * @param val the value
+     * @param origin the origin value
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void onDuplicate(Map object, String name, Object val, Object origin) {
+        if (isEnabled(Feature.DuplicateKeyValueAsArray)) {
+            if (origin instanceof Collection) {
+                ((Collection) origin).add(val);
+                object.put(name, origin);
+            } else {
+                Collection array = createArray();
+                array.add(origin);
+                array.add(val);
+                object.put(name, array);
             }
         }
-        if (!havePart) {
-            throw failure(docInfo,
-                    "Input expected after '[.|e|E]'", offset);
+    }
+
+    /**
+     * Is enabled
+     * @param feature the feature
+     * @return true if enabled
+     */
+    public boolean isEnabled(Feature feature) {
+        return feature.isEnabled(features);
+    }
+
+    /**
+     * Parser Feature
+     */
+    public enum Feature {
+        /**
+         * Keep order
+         */
+        KeepOrder(1),
+        /**
+         * Trim string
+         */
+        TrimString(1 << 1),
+        /**
+         * Empty string as null
+         */
+        EmptyStringAsNull(1 << 2),
+        /**
+         * Null as empty string
+         */
+        DuplicateKeyValueAsArray(1 << 3),
+        /**
+         * Duplicate key error
+         */
+        DuplicateKeyError(1 << 4);
+        private final long mask;
+        Feature(long mask) {
+            this.mask = mask;
         }
-        return offset;
-    }
 
-    // Utility functions
-    static int skipWhitespaces(JsonDocumentInfo docInfo, int offset) {
-        while (offset < docInfo.getEndOffset()) {
-            if (notWhitespace(docInfo, offset)) {
-                break;
-            }
-            offset ++;
-        }
-        return offset;
-    }
-
-    static boolean checkWhitespaces(JsonDocumentInfo docInfo, int offset, int endOffset) {
-        int end = Math.min(endOffset, docInfo.getEndOffset());
-        while (offset < end) {
-            if (notWhitespace(docInfo, offset)) {
-                return false;
-            }
-            offset ++;
-        }
-        return true;
-    }
-
-    static boolean notWhitespace(JsonDocumentInfo docInfo, int offset) {
-        return !isWhitespace(docInfo, offset);
-    }
-
-    static boolean isWhitespace(JsonDocumentInfo docInfo, int offset) {
-        return switch (docInfo.charAt(offset)) {
-            case ' ', '\t','\r' -> true;
-            case '\n' -> {
-                docInfo.updatePosition(offset + 1);
-                yield true;
-            }
-            default -> false;
-        };
-    }
-
-    static JsonParseException failure(JsonDocumentInfo docInfo, String message, int offset) {
-        var errMsg = docInfo.composeParseExceptionMessage(
-                message, docInfo.getLine(), docInfo.getLineStart(), offset);
-        return new JsonParseException(errMsg, docInfo.getLine(), offset - docInfo.getLineStart());
-    }
-
-    private static void checkDepth(JsonDocumentInfo docInfo, int offset, int depth) {
-        if (depth > Json.MAX_DEPTH) {
-            throw failure(docInfo, "Max depth exceeded", offset);
+        /**
+         * Is enabled
+         * @param features the features
+         * @return true if enabled
+         */
+        public final boolean isEnabled(long features) {
+            return (features & mask) != 0;
         }
     }
 
-    // no instantiation of this parser
-    private JsonParser(){}
+    /**
+     * DIGITS
+     */
+    static final int[] DIGITS = new int[]{
+            +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0,
+            +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0,
+            +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0,
+            +0, +1, +2, +3, +4, +5, +6, +7, +8, +9, +0, +0, +0, +0, +0, +0,
+            +0, 10, 11, 12, 13, 14, 15, +0, +0, +0, +0, +0, +0, +0, +0, +0,
+            +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0, +0,
+            +0, 10, 11, 12, 13, 14, 15
+    };
+
+    final char char1(int c) {
+        switch (c) {
+            case '0':
+                return '\0';
+            case '1':
+                return '\1';
+            case '2':
+                return '\2';
+            case '3':
+                return '\3';
+            case '4':
+                return '\4';
+            case '5':
+                return '\5';
+            case '6':
+                return '\6';
+            case '7':
+                return '\7';
+            case 'b': // 8
+                return '\b';
+            case 't': // 9
+                return '\t';
+            case 'n': // 10
+                return '\n';
+            case 'v': // 11
+                return '\u000B';
+            case 'f': // 12
+            case 'F':
+                return '\f';
+            case 'r': // 13
+                return '\r';
+            case '"': // 34
+            case '\'': // 39
+            case '/': // 47
+            case '.': // 47
+            case '\\': // 92
+            case '#':
+            case '&':
+            case '[':
+            case ']':
+            case '@':
+            case '(':
+            case ')':
+            case '_':
+            case ',':
+            case '~':
+                return (char) c;
+            default:
+                throw new JsonParseException("unclosed.str '\\" + c, 0, 0   );
+        }
+    }
+
+    /**
+     * escaped char2
+     * @param c1 c1
+     * @param c2 c2
+     * @return the char
+     */
+    static char char2(int c1, int c2) {
+        return (char) (DIGITS[c1] * 0x10
+                + DIGITS[c2]);
+    }
+
+    /**
+     * escaped char4
+     * @param c1 c1
+     * @param c2 c2
+     * @param c3 c3
+     * @param c4 c4
+     * @return char
+     */
+    static char char4(int c1, int c2, int c3, int c4) {
+        return (char) (DIGITS[c1] * 0x1000
+                + DIGITS[c2] * 0x100
+                + DIGITS[c3] * 0x10
+                + DIGITS[c4]);
+    }
+
+    /**
+     * Close
+     */
+    @Override
+    public void close() {
+    }
+
+    /**
+     * create a JsonParser
+     * @param json the json string
+     * @return a JsonParser
+     */
+    public static JsonParser of(String json) {
+        return new JsonParserStr(json);
+    }
+
+    /**
+     * create a JsonParser
+     * @param json the json string bytes
+     * @param offset the offset
+     * @param length the length
+     * @param charset the charset
+     * @return a JsonParser
+     */
+    public static JsonParser of(byte[] json, int offset, int length, Charset charset) {
+        if (charset == StandardCharsets.UTF_8 || charset == StandardCharsets.US_ASCII) {
+            return new JsonParserUTF8(json, offset, length);
+        }
+        return of(new String(json, offset, length, charset));
+    }
 }

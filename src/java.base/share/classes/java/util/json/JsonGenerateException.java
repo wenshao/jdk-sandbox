@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, Alibaba Group Holding Limited. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,23 +26,23 @@
 
 package java.util.json;
 
-import jdk.internal.javac.PreviewFeature;
+import java.io.Serial;
 
 /**
- * The interface that represents JSON null.
- * <p>
- * A {@code JsonNull} can be produced by {@link Json#parse(String)}.
- * <p> Alternatively, {@link #of()} can be used to obtain a {@code JsonNull}.
+ * Signals that an error has been detected while generate the
+ * JSON document.
  *
  * @since 25
  */
-@PreviewFeature(feature = PreviewFeature.Feature.JSON)
-public sealed interface JsonNull extends JsonValue permits JsonNullImpl {
-
+public class JsonGenerateException
+        extends RuntimeException {
+    @Serial
+    private static final long serialVersionUID = 7022545379651073390L;
     /**
-     * {@return the {@code JsonNull} that represents a "null" JSON value}
+     * Constructs a JsonParseException with the specified detail message.
+     * @param message the detail message
      */
-    static JsonNull of() {
-        return JsonNullImpl.NULL;
+    public JsonGenerateException(String message) {
+        super(message);
     }
 }

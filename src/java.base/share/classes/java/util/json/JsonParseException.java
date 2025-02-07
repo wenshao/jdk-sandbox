@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, Alibaba Group Holding Limited. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +26,6 @@
 
 package java.util.json;
 
-import jdk.internal.javac.PreviewFeature;
-
 import java.io.Serial;
 
 /**
@@ -35,8 +34,8 @@ import java.io.Serial;
  *
  * @since 25
  */
-@PreviewFeature(feature = PreviewFeature.Feature.JSON)
-public class JsonParseException extends RuntimeException {
+public class JsonParseException
+        extends RuntimeException {
 
     @Serial
     private static final long serialVersionUID = 7022545379651073390L;

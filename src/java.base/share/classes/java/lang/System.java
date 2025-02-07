@@ -2099,6 +2099,9 @@ public final class System {
             public int countPositives(byte[] bytes, int offset, int length) {
                 return StringCoding.countPositives(bytes, offset, length);
             }
+            public int countPositives(String s) {
+                return StringCoding.countPositives(s);
+            }
             public int countNonZeroAscii(String s) {
                 return StringCoding.countNonZeroAscii(s);
             }
